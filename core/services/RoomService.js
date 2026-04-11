@@ -36,10 +36,20 @@ const RoomService = {
 	 * 创建房间
 	 * @param playerId
 	 */
-	createRoom: async function (playerId) {
+	createRoom: async function (playerId,customRoomId, roomType) {
 		let isLogin = this.checkIsLogin(playerId);
 		if (isLogin) {
-			let roomId = this.createRoomId();
+			let roomId;
+			if (customRoomId) {
+                // 如果有人强行指定房号，先看看这个号是不是正在被别人用
+                if (_.includes(this.roomIds, customRoomId)) {
+                    throw "该房间号已被占用"; // 如果万一撞车了，抛出错误打断
+                }
+                roomId = customRoomId;
+            } else {
+                // 没指定，就走老逻辑随机生成
+                roomId = this.createRoomId();
+            }
 			this.roomIds.push(roomId);
 			let user = {};
 			try {
@@ -47,7 +57,7 @@ const RoomService = {
 			} catch (e) {
 			}
 			let data = _.zipObject([playerId], [{
-				id: playerId, roomId: roomId, status: 1, score: 0, isHomeOwner: true, pos: 0, optionPos: 0,
+				id: playerId, roomId: roomId, status: 0, score: 0, isHomeOwner: false, pos: 0, optionPos: 0,
 				roomRule: user.roomRule || 0, avatar: user.avatar, name: user.name, isHint: user.isHint || 0
 			}]);
 			this.rooms = this.updateRoomInfo(roomId, this.rooms, data);
@@ -55,12 +65,51 @@ const RoomService = {
 			let playerInfo = {pos: 0, roomId,  playerStatus: 2, isLogin: true};
 			PlayerService.updatePlayerInfo(playerId, playerInfo);
 			this.updateGameCollectionsDeep(roomId, "tableIds", [playerId])
+			if (roomType === 'ai') {
+                // 给这个房间打个标签，防止别人“快速匹配”时不小心进到你的单机局里
+                this.updateGameCollectionsDeep(roomId, "isAIRoom", true); 
+                
+                // TODO: 这里写你未来调取机器人的逻辑
+                // 比如: await RobotService.addRobots(roomId, 3); // 塞3个狗进去
+            }
 			return { roomInfo: this.getRoomInfo(roomId), gameInfo: this.getGameInfo(roomId)};
 		} else {
 			throw null
 		}
 	},
 	
+	/**
+     * 快速匹配 (新增)
+     * @param playerId
+     */
+    quickMatch: async function (playerId) {
+        let isLogin = this.checkIsLogin(playerId);
+        if (!isLogin) throw "用户未登录";
+
+        // 1. 遍历现有的所有房间号，找缺人的
+        for (let i = 0; i < this.roomIds.length; i++) {
+            let roomId = this.roomIds[i];
+            let count = this.getPlayerCount(roomId);
+            
+            // 查一下这个房间是不是刚才打过标签的 AI 单机房
+            let isAIRoom = this.getGameInfoDeep(roomId, "isAIRoom"); 
+
+            // 如果房间有人（>0），但没满（<4），而且不是AI房
+            if (count > 0 && count < 4 && !isAIRoom) {
+                try {
+                    // 尝试复用你的老方法加入房间
+                    return await this.joinRoom(roomId, playerId);
+                } catch (e) {
+                    // 如果刚好这一瞬间房间满了抛出异常，忽略，继续找下一个房
+                    continue; 
+                }
+            }
+        }
+
+        // 2. 如果循环跑完了，一个缺人的房间都没有，那就自己当房主建个新房等别人来
+        return await this.createRoom(playerId);
+    },
+
 	/**
 	 * 加入房间
 	 * @param roomId
@@ -119,22 +168,22 @@ const RoomService = {
 				this.disbandRoom(roomId);
 				return;
 			}
-			if (isHomeOwner) {
-				// 1、该玩家是房主，房主退房，后面的补位
-				let ids = _.keys(newRoomInfo);
-				let nextPlayerId = "";
-				for (let i = 0; i < ids.length; i++) {
-					let pos = PlayerService.getPos(ids[i]);
-					if (pos === 1) {
-						nextPlayerId = ids[i];
-						break;
-					}
-				}
-				//清除个人在房间内的数据,仅保留登录态
-				PlayerService.cleanUserRoomStatus(playerId);
-				PlayerService.setPos(roomId, nextPlayerId, 0);
-				_.set(this.rooms, `${roomId}.${nextPlayerId}.isHomeOwner`, true);
-			}
+			// if (isHomeOwner) {
+			// 	// 1、该玩家是房主，房主退房，后面的补位
+			// 	let ids = _.keys(newRoomInfo);
+			// 	let nextPlayerId = "";
+			// 	for (let i = 0; i < ids.length; i++) {
+			// 		let pos = PlayerService.getPos(ids[i]);
+			// 		if (pos === 1) {
+			// 			nextPlayerId = ids[i];
+			// 			break;
+			// 		}
+			// 	}
+			// 	//清除个人在房间内的数据,仅保留登录态
+			// 	PlayerService.cleanUserRoomStatus(playerId);
+			// 	PlayerService.setPos(roomId, nextPlayerId, 0);
+			// 	_.set(this.rooms, `${roomId}.${nextPlayerId}.isHomeOwner`, true);
+			// }
 			this.rooms = this.updateRoomInfo(roomId, this.rooms, newRoomInfo);
 		}
 		return this.getRoomInfo(roomId);

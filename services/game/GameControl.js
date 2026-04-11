@@ -31,6 +31,8 @@ const GameControl = {
 		const jsonData = {roomInfo, gameInfo}
 		ws.broadcastToRoom(_.keys(roomInfo), `房间${message?.roomId}游戏开始`, jsonData, 'startGame')
 	},
+
+	
 	/**
 	 * 断线重连
 	 * @param message
@@ -94,7 +96,9 @@ const GameControl = {
 	 * @param ws
 	 */
 	win: function (message, ws){
+		
 		const data = message?.data;
+		
 		const result = GameService.win(data?.roomId, data.userId, data?.cardNum);
 		const jsonData = { result,playerId: data?.userId,playCardTime: moment().valueOf() }
 		ws.broadcastToRoom(_.keys(result), `房间${data?.roomId}玩家${data.userId}胡牌`, jsonData, 'winning')

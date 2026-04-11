@@ -26,9 +26,9 @@ module.exports = (sequelize, DataTypes) => {
 		  type: DataTypes.STRING,
 		  comment: "账号"
 	  },
-	  password: {
+	  address: {
 		  type: DataTypes.STRING,
-		  comment: '密码'
+		  comment: '钱包地址'
 	  },
 	  name: {
 		  type: DataTypes.STRING,

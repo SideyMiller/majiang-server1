@@ -1,7 +1,7 @@
 const models = require("@/models");
 const User = models.User;
 const {v4: uuidv4} = require('uuid');
-const cacheClient = require("@utils/cacheClient");
+const cacheClient = require("@utils/CacheClient");
 const RoomService = require("@/core/services/RoomService");
 const _ = require("lodash");
 const moment = require("moment");
@@ -20,16 +20,16 @@ const UserService = {
 	 * @returns {Promise<Model<any, TModelAttributes>|Model<any, any>>}
 	 */
 	login: async (info) => {
-		let {account, password, avatar, name, gender} = info;
-		let userInfo = await User.findOne({where: {account}});
+		let {account, address, avatar, name, gender} = info;
+		let userInfo = await User.findOne({where: {address}});
 		if (!_.isEmpty(userInfo)) {
 			return userInfo;
 		}
 		let newUser = {
 			id: uuidv4(),
 			account,
-			password,
-			name: name || account,
+			address,
+			name: account,
 			avatar: avatar || 'http://thirdwx.qlogo.cn/mmopen/vi_32/DYAIOgq83erD6MOUwRKV9NyBAqnoFDTnltzAe2zWOkKxyDOFibVBb1ZV5CaATJwYAuNqZ5sXMBC4c8iacaHDf8RA/132',
 			gender: gender || 2,
 		};

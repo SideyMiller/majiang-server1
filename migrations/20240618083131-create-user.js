@@ -5,9 +5,10 @@ module.exports = {
     await queryInterface.createTable('Users', {
       id: {
         allowNull: false,
-        autoIncrement: true,
+        
         primaryKey: true,
-        type: Sequelize.UUID
+        type: Sequelize.UUID,
+		defaultValue: Sequelize.UUIDV4
       },
 	    uId: {
 		    type: Sequelize.STRING,
@@ -17,9 +18,9 @@ module.exports = {
 		    type: Sequelize.STRING,
 		    comment: "账号"
 	    },
-	    password: {
+	    adress: {
 		    type: Sequelize.STRING,
-		    comment: '密码'
+		    comment: '钱包地址'
 	    },
 	    name: {
 		    type: Sequelize.STRING,

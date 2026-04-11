@@ -11,7 +11,7 @@ const SocketApi = {
 	//退出房间
 	quit: "quit",
 	//设置长连接唯一标识
-	setUserId: "setUserId",
+	setUserId: "setUserId",	
 	//开始游戏
 	startGame: 'startGame',
 	//主动重连
