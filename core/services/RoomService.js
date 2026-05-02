@@ -3,6 +3,7 @@ const User = models.User;
 const _ = require("lodash");
 const moment = require("moment")
 const PlayerService = require("@/core/services/PlayerService");
+const RobotService = require("@/core/services/RobotService");
 /**
  * 数据结构
  * 1、rooms {roomId: roomInfo}
@@ -69,8 +70,8 @@ const RoomService = {
                 // 给这个房间打个标签，防止别人“快速匹配”时不小心进到你的单机局里
                 this.updateGameCollectionsDeep(roomId, "isAIRoom", true); 
                 
-                // TODO: 这里写你未来调取机器人的逻辑
-                // 比如: await RobotService.addRobots(roomId, 3); // 塞3个狗进去
+                // 调用机器人服务将3个机器人添加到房间
+                RobotService.addRobots(roomId, 3);
             }
 			return { roomInfo: this.getRoomInfo(roomId), gameInfo: this.getGameInfo(roomId)};
 		} else {
@@ -115,37 +116,64 @@ const RoomService = {
 	 * @param roomId
 	 * @param playerId
 	 */
-	joinRoom: async function (roomId, playerId) {
-		let count = this.getPlayerCount(roomId);
-		let isRoomExist = this.isRoomExist(roomId);
-		let isLogin = this.checkIsLogin(playerId);
-		if (!isLogin) {
-			throw "用户未登录";
+	joinRoom: async function (roomId, playerId, type) {
+		if(type === 'ai')
+		{
+			let isRoomExist = this.isRoomExist(roomId);
+			if (!isRoomExist) {
+				throw "房间已被解散";
+			}
+			let roomInfo = RoomService.getRoomInfo(roomId);
+			let playerCount = this.getPlayerCount(roomId);
+			
+			const data = {
+				id: playerId, roomId: roomId, status: 1, score: 0, isHomeOwner: false, pos: playerCount,
+				optionPos: 0, roomRule: 0, avatar: null, name: 'AI玩家_' + playerId.substring(playerId.length - 4), isHint: false
+			}
+			const newRoomInfo = this.updateRoomInfoShallow(playerId, roomInfo, data)
+			this.updateRoomInfo(roomId, this.rooms, newRoomInfo);
+			let playerInfo = {pos: playerCount, roomId, playerStatus: 2, isLogin: true};
+			PlayerService.updatePlayerInfo(playerId, playerInfo);
+
+			let tableIds = this.getGameInfoDeep(roomId, "tableIds") || [];
+			tableIds.push(playerId);
+			this.updateGameCollectionsDeep(roomId, "tableIds", tableIds);
+			// ----- end  -----
+			return { roomInfo: this.getRoomInfo(roomId), gameInfo: this.getGameInfo(roomId)};
 		}
-		if (!isRoomExist) {
-			throw "房间已被解散";
+		else
+		{
+			let count = this.getPlayerCount(roomId);
+			let isRoomExist = this.isRoomExist(roomId);
+			let isLogin = this.checkIsLogin(playerId);
+			if (!isLogin) {
+				throw "用户未登录";
+			}
+			if (!isRoomExist) {
+				throw "房间已被解散";
+			}
+			if (count >= 4) {
+				throw "房间已满";
+			}
+			let roomInfo = RoomService.getRoomInfo(roomId);
+			const user = await User.findOne({where: {id: playerId}});
+			let playerCount = this.getPlayerCount(roomId);
+			PlayerService.updatePlayerInfoDeep("pos", playerId, playerCount)
+			const data = {
+				id: playerId, roomId: roomId, status: 0, score: 0, isHomeOwner: false, pos: playerCount,
+				optionPos: 0, roomRule: 0, avatar: null, name: user.name, isHint: true
+			}
+			const newRoomInfo = this.updateRoomInfoShallow(playerId, roomInfo, data)
+			this.updateRoomInfo(roomId, this.rooms, newRoomInfo);
+			// 设置玩家房间号 和 玩家位置
+			let playerInfo = {pos: count, roomId, playerStatus: 2};
+			PlayerService.updatePlayerInfo(playerId, playerInfo);
+			let tableIds = this.getGameInfoDeep(roomId, "tableIds") || [];
+			tableIds.push(playerId);
+			this.updateGameCollectionsDeep(roomId, "tableIds", tableIds);
+			// ----- end  -----
+			return { roomInfo: this.getRoomInfo(roomId), gameInfo: this.getGameInfo(roomId)};
 		}
-		if (count >= 4) {
-			throw "房间已满";
-		}
-		let roomInfo = RoomService.getRoomInfo(roomId);
-		const user = await User.findOne({where: {id: playerId}});
-		let playerCount = this.getPlayerCount(roomId);
-		PlayerService.updatePlayerInfoDeep("pos", playerId, playerCount)
-		const data = {
-			id: playerId, roomId: roomId, status: 0, score: 0, isHomeOwner: false, pos: playerCount,
-			optionPos: 0, roomRule: 0, avatar: user.avatar, name: user.name, isHint: true
-		}
-		const newRoomInfo = this.updateRoomInfoShallow(playerId, roomInfo, data)
-		this.updateRoomInfo(roomId, this.rooms, newRoomInfo);
-		// 设置玩家房间号 和 玩家位置
-		let playerInfo = {pos: count, roomId, playerStatus: 2};
-		PlayerService.updatePlayerInfo(playerId, playerInfo);
-		let tableIds = this.getGameInfoDeep(roomId, "tableIds") || [];
-		tableIds.push(playerId);
-		this.updateGameCollectionsDeep(roomId, "tableIds", tableIds);
-		// ----- end  -----
-		return { roomInfo: this.getRoomInfo(roomId), gameInfo: this.getGameInfo(roomId)};
 	},
 	
 	/**
@@ -163,8 +191,11 @@ const RoomService = {
 			let oldPlayerInfo = _.get(roomInfo, playerId);
 			let isHomeOwner = _.get(oldPlayerInfo, 'isHomeOwner');
 			let newRoomInfo = _.omit(roomInfo, playerId);
+
+			let remainingIds = _.keys(newRoomInfo);
+			let hasRealPlayer = remainingIds.some(id => !id.startsWith('robot_'));
 			//如果房间只有一个人，直接解散房间,清除房间的数据
-			if (_.size(newRoomInfo) <= 0) {
+			if (_.size(newRoomInfo) <= 0 || !hasRealPlayer) {
 				this.disbandRoom(roomId);
 				return;
 			}
@@ -188,6 +219,81 @@ const RoomService = {
 		}
 		return this.getRoomInfo(roomId);
 	},
+
+
+	/**
+	 * (新增) 为下一局游戏重置房间状态
+	 * @param {string} roomId
+	 */
+	resetRoomForNextGame: function(roomId) {
+		const roomInfo = this.getRoomInfo(roomId);
+		if (!roomInfo) {
+			return null;
+		}
+		const newRoomInfo = _.cloneDeep(roomInfo);
+
+		// 遍历房间内的所有玩家
+		for (const playerId in newRoomInfo) {
+			// 保留核心信息，重置游戏状态
+			const player = newRoomInfo[playerId];
+			// 将每个玩家的状态恢复到“刚进房”的样子
+			newRoomInfo[playerId] = {
+				// ----------- 保留的核心信息 -----------
+				id: player.id,
+				roomId: player.roomId,
+				score: player.score, // 分数通常需要跨局保留
+				isHomeOwner: player.isHomeOwner,
+				pos: player.pos,
+				roomRule: player.roomRule,
+				avatar: player.avatar,
+				name: player.name,
+				isHint: player.isHint,
+				
+				// ----------- 重置的游戏状态 -----------
+				status: 0,      // 关键：状态必须重置为 0 (未准备)，这样/ready接口的检查逻辑才能正确触发startGame
+				optionPos: 0,
+				
+				// ----------- 清空上一局的牌局数据 -----------
+				handCards: [],     // 清空手牌
+				playedCards: [],   // 清空已打出的牌
+				pengCards: [],       // 清空碰的牌
+				gangCards: [],       // 清空杠的牌
+				// 这里可以根据需要，添加其他在游戏过程中被动态添加到玩家对象上的字段，并将其重置
+			};
+		}
+		
+		// 获取旧的牌局信息，以便保留关键数据
+		const oldGameInfo = this.getGameInfo(roomId);
+
+		// 创建一个新的、干净的牌局信息对象
+		const newGameInfo = {
+			// 保留不应被重置的字段
+			tableIds: oldGameInfo.tableIds, // 玩家列表需要保留
+			isAIRoom: oldGameInfo.isAIRoom, // AI房的标记需要保留
+			// 其他需要跨局保留的字段...
+
+			// 其余字段全部清除，恢复到初始状态
+			activeCardIdx: null,
+			lastActiveCardIdx: null,
+			cards: [],
+			remainingNum: 0,
+			allPlayedCards: [],
+			optionPos: 0,
+			optionTime: null,
+		};
+		// 更新并保存房间信息
+		this.updateRoomInfo(roomId, this.rooms, newRoomInfo);
+		// 更新游戏集合
+		this.updateGameCollections(roomId, newGameInfo);
+
+		
+
+		console.log(`房间 ${roomId} 已成功重置，准备进入下一局。`);
+		
+		// 返回更新后的房间信息和游戏信息
+		return { roomInfo: this.getRoomInfo(roomId), gameInfo: this.getGameInfo(roomId) };
+	},
+
 	
 	/**
 	 * 解散房间
@@ -195,6 +301,13 @@ const RoomService = {
 	 */
 	disbandRoom: function (roomId) {
 		const roomInfo = this.getRoomInfo(roomId);
+		if (roomInfo) {
+			_.keys(roomInfo).forEach(id => {
+				if (id.startsWith('robot_')) {
+					RobotService.removeRobotSocket(id);
+				}
+			});
+		}
 		this.rooms = _.omit(this.rooms, roomId);
 		this.roomIds = _.filter(this.roomIds, o=> o !== roomId);
 		const keys = _.keys(roomInfo);
@@ -396,15 +509,22 @@ const RoomService = {
 	 * @returns {*}
 	 */
 	adjustHandCards: function (cards){
+		if (!cards || cards.length === 0) return [];
 		let adjustCards = _.cloneDeep(cards);
-		for (let i = 0; i < adjustCards.length - 1; i++) {
-			for (let j = 0; j < adjustCards.length - i - 1; j++) {
-				if (adjustCards[j]%50 > adjustCards[j + 1]%50) {
-					[adjustCards[j], adjustCards[j + 1]] = [adjustCards[j + 1], adjustCards[j]];
-				}
-			}
+		
+		function sortKey(num) {
+			if (num >= 211) return num - 211;          // 花牌 排最前 0~13
+			const mod = num % 50;
+			if (mod >= 11 && mod <= 19) return 200 + mod;  // 万
+			if (mod >= 21 && mod <= 29) return 300 + mod;  // 条
+			if (mod >= 31 && mod <= 39) return 400 + mod;  // 筒
+			if (mod >= 41 && mod <= 44) return 500 + mod;  // 风
+			if (mod >= 1  && mod <= 3)  return 100 + mod;  // 三元
+			return 999;
 		}
-		return adjustCards
+		
+		adjustCards.sort((a, b) => sortKey(a) - sortKey(b));
+		return adjustCards;
 	},
 	/**
 	 * 更新手牌数据

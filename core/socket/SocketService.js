@@ -90,7 +90,7 @@ class SocketService{
 	 */
 	async onMessageHandle(message, userId){
 		if (message === 'ping') { //心跳
-			console.log('心跳：来自客户端的ping');
+			// console.log('心跳：来自客户端的ping');
 			this.sendHeartBeat(userId);
 		} else if(Utils.isJSON(message)) {  // API
 			const parseMessage = JSON.parse(_.cloneDeep(message));
@@ -177,7 +177,7 @@ class SocketService{
 					}
 					let userData = _.cloneDeep(data);
 					userData.roomInfo = newRoomInfo;
-					console.log("服务端返回的值", message, userData, type)
+					// console.log("服务端返回的值", message, userData, type)
 					ws.send(JSON.stringify({ message, data: userData, type }));
 				}
 			});
@@ -201,7 +201,7 @@ class SocketService{
 					}
 					let userData = _.cloneDeep(data);
 					userData.roomInfo = newRoomInfo;
-					console.log("服务端返回的值", message, userData, type)
+					// console.log("服务端返回的值", message, userData, type)
 					ws.send(JSON.stringify({ message, data: userData, type }));
 				}
 			});

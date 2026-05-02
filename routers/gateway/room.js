@@ -86,14 +86,14 @@ room.post("/ready", async ctx => {
     try {
         // 1. 调用你找到的 setout 更新状态
         let roomInfo = await RoomService.setout(roomId, playerId, status);
-		console.log(`当前房间数据:`, JSON.stringify(roomInfo, null, 2));
+		// console.log(`当前房间数据:`, JSON.stringify(roomInfo, null, 2));
         // 2. 告诉房间所有人：有人准备了/取消了，赶紧刷新UI
         for(let k in roomInfo){
             ws.sendToUser(_.get(roomInfo, `${k}.id`), `状态更新`, {roomInfo}, 'updateRoom');
         }
         // 3. 开始检阅队伍（检查是否满足开局条件）
         let playerIds = Object.keys(roomInfo);
-        let isFull = playerIds.length === 1 ; // 假设你的游戏是4人局
+        let isFull = playerIds.length === 4 ; // 假设你的游戏是4人局
         let allReady = true;
 
         for (let id of playerIds) {
@@ -102,7 +102,7 @@ room.post("/ready", async ctx => {
                 break; // 停止检查
             }
         }
-		console.log(`发车判定 -> 满员: ${isFull} (当前${playerIds.length}人), 全员准备: ${allReady}`);
+		// console.log(`发车判定 -> 满员: ${isFull} (当前${playerIds.length}人), 全员准备: ${allReady}`);
         // 4. 终极发车！满员且全员准备！
         if (isFull && allReady) {
             // 调用你说的另外那个代码里的核心开始逻辑

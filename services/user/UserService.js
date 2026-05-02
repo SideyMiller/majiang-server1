@@ -30,7 +30,7 @@ const UserService = {
 			account,
 			address,
 			name: account,
-			avatar: avatar || 'http://thirdwx.qlogo.cn/mmopen/vi_32/DYAIOgq83erD6MOUwRKV9NyBAqnoFDTnltzAe2zWOkKxyDOFibVBb1ZV5CaATJwYAuNqZ5sXMBC4c8iacaHDf8RA/132',
+			avatar: avatar ,
 			gender: gender || 2,
 		};
 		userInfo = await User.create(newUser);

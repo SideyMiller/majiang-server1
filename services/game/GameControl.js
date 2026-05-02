@@ -72,7 +72,7 @@ const GameControl = {
 	peng: function (message, ws){
 		const data = message?.data;
 		// 1. 修改游戏数据
-		const roomInfo = GameService.peng(data?.roomId, data.userId, data?.pengArr)
+		const roomInfo = GameService.peng(data?.roomId, data.userId, data?.cardNum)
 		const gameInfo = RoomService.getGameInfo(data?.roomId)
 		// 2. 新数据推送给相关玩家
 		const jsonData = {roomInfo,gameInfo, pengArr: data?.pengArr, playerId: data?.userId, playCardTime: moment().valueOf()}
@@ -85,9 +85,10 @@ const GameControl = {
 	 */
 	gang: function (message, ws) {
 		const data = message?.data;
-		const roomInfo = GameService.gang(data?.roomId, data.userId, data?.gangArr)
+		const roomInfo = GameService.gang(data?.roomId, data.userId, data?.cardNum,data?.type)
+
 		const gameInfo = RoomService.getGameInfo(data?.roomId)
-		const jsonData = { roomInfo, gameInfo, gangArr: data?.gangArr,playerId: data?.userId,playCardTime: moment().valueOf() }
+		const jsonData = { roomInfo, gameInfo, gangArr: data?.gangArr,playerId: data?.userId,gangType: data?.gangType,playCardTime: moment().valueOf() }
 		ws.broadcastToRoom(_.keys(roomInfo), `房间${data?.roomId}玩家${data.userId}开杠`, jsonData, 'gang')
 	},
 	/**
@@ -98,9 +99,9 @@ const GameControl = {
 	win: function (message, ws){
 		
 		const data = message?.data;
-		
 		const result = GameService.win(data?.roomId, data.userId, data?.cardNum);
-		const jsonData = { result,playerId: data?.userId,playCardTime: moment().valueOf() }
+		const newRoomInfo = RoomService.resetRoomForNextGame(data?.roomId);
+		const jsonData = { result, playerId: data?.userId,playCardTime: moment().valueOf() }
 		ws.broadcastToRoom(_.keys(result), `房间${data?.roomId}玩家${data.userId}胡牌`, jsonData, 'winning')
 	}
 }
