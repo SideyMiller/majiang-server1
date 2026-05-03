@@ -188,31 +188,97 @@ const GameService = {
 	/**
 	 * 检测其他人打出的牌（主要是碰和杠）
 	 */
-	handleOtherPlayerCard: function (roomId, playerId, cardNum){
-		const isAllPlayerHasOption = this.handleHandCardByOtherPlayerCard(roomId, playerId, cardNum);
-		if(isAllPlayerHasOption){
-			return
+	handleOtherPlayerCard: function (roomId, playerId, cardNum, pass){
+		if(pass){
+			// 从 pass 调用，跳过碰/杠/胡检测，直接让下家摸牌
+			this.handleHandCardByMe(roomId, playerId);
+			return;
 		}
-		this.handleHandCardByMe(roomId, playerId)
+		// 正常出牌，检测其他玩家是否可操作
+		const isAllPlayerHasOption = this.handleHandCardByOtherPlayerCard(roomId, playerId, cardNum);
+		if(!isAllPlayerHasOption){
+			// 无人可操作，让下家摸牌
+			this.handleHandCardByMe(roomId, playerId);
+		}
 	},
-	/**
-	 * 判断是否可以胡牌
-	 * @param cards
-	 * 胡牌必须手上的牌型满足 AAA + ABC + AA(只有一对将) 三个条件
-	 */
-	checkIsWinning: function (cards) {
-		if (cards.length % 3 !== 2) return false;  // 检查手牌长度是否符合胡牌要求
-		cards.sort((a, b) => a % 50 - b % 50);     // 将手牌再次排序防止BUG（非必须，摸牌时已经排序过）
-		// 检查所有可能的将牌组合
-		for (let i = 0; i < cards.length - 1; i++) {
-			if (cards[i]%50 === cards[i + 1]%50) {
-				// 复制手牌并去掉将牌
-				let remaining = cards.slice();
-				remaining.splice(i, 2);
-				// 递归检查剩余的牌是否符合AAA+ABC规则
-				if (this.checkIsAAAorABC(this.computedCards(remaining))) {
-					return true;
-				}
+
+	
+
+	// 工具函数
+	face: card => card % 50,
+
+		isHonor: function(f) {
+		return (f >= 41 && f <= 44) || (f >= 1 && f <= 3);
+	},
+
+	sameSuit: function(a, b, c) {
+		const suit = f => f >= 11 && f <= 19 ? 1
+						: f >= 21 && f <= 29 ? 2
+						: f >= 31 && f <= 39 ? 3 : 0;
+		return suit(a) === suit(b) && suit(b) === suit(c) && suit(a) !== 0;
+	},
+
+	// 递归验证面子
+	checkSets: function(faces) {
+		if (faces.length === 0) return true;
+		const a = faces[0];
+
+		if (faces[1] === a && faces[2] === a) {
+			if (this.checkSets(faces.slice(3))) return true;
+		}
+
+		if (!this.isHonor(a)) {
+			const b = a + 1, c = a + 2;
+			if (this.sameSuit(a, b, c) && faces.includes(b) && faces.includes(c)) {
+			const rest = [...faces];
+			rest.splice(rest.indexOf(a), 1);
+			rest.splice(rest.indexOf(b), 1);
+			rest.splice(rest.indexOf(c), 1);
+			if (this.checkSets(rest)) return true;
+			}
+		}
+		return false;
+	},
+
+	// 七对
+	checkSevenPairs: function(faces) {
+		if (faces.length !== 14) return false;
+		for (let i = 0; i < faces.length; i += 2) {
+			if (faces[i] !== faces[i + 1]) return false;
+		}
+		return true;
+		},
+
+		// 十三幺
+		checkThirteenOrphans: function(faces) {
+		if (faces.length !== 14) return false;
+		const required = [1, 2, 3, 11, 19, 21, 29, 31, 39, 41, 42, 43, 44];
+		const counts = {};
+		faces.forEach(f => counts[f] = (counts[f] || 0) + 1);
+		const keys = Object.keys(counts).map(Number);
+		if (keys.length !== 13) return false;
+		return required.every(r => keys.includes(r));
+	},
+
+	// 主入口
+	checkIsWinning: function(cards) {
+		// 过滤花牌，转牌面值，排序
+		const faces = cards
+			.filter(c => !(c >= 211 && c <= 218))
+			.map(c => c % 50)
+			.sort((a, b) => a - b);
+
+		if (this.checkSevenPairs(faces)) return true;
+		if (this.checkThirteenOrphans(faces)) return true;
+
+		if (faces.length % 3 !== 2) return false;
+
+		for (let i = 0; i < faces.length - 1; i++) {
+			if (faces[i] === faces[i + 1]) {
+			if (i > 0 && faces[i] === faces[i - 1]) continue; // 跳过重复枚举
+			const rest = [...faces];
+			rest.splice(i, 2);
+			if (this.checkSets(rest)) return true;
 			}
 		}
 		return false;
@@ -227,38 +293,6 @@ const GameService = {
 		return _.map(cards, o => (o >= 211 && o <= 218) ? o : o % 50);
 	},
 
-	/**
-	 * 检测牌是否是 AAA 或 ABC 牌型
-	 * @param cards
-	 * @returns {boolean}
-	 */
-	checkIsAAAorABC: function (cards){
-		if (cards.length === 0) return true;
-
-		// 检查是否可以拆分出AAA
-		for (let i = 0; i < cards.length - 2; i++) {
-			if (cards[i] === cards[i + 1] && cards[i] === cards[i + 2]) {
-				let remaining = cards.slice();
-				remaining.splice(i, 3);
-				if (this.checkIsAAAorABC(remaining)) return true;
-			}
-		}
-
-		// 检查是否可以拆分出ABC
-		for (let i = 0; i < cards.length - 2; i++) {
-			let a = cards[i];
-			let b = a + 1;
-			let c = a + 2;
-			if (cards.includes(b) && cards.includes(c)) {
-				let remaining = cards.slice();
-				remaining.splice(remaining.indexOf(a), 1);
-				remaining.splice(remaining.indexOf(b), 1);
-				remaining.splice(remaining.indexOf(c), 1);
-				if (this.checkIsAAAorABC(remaining)) return true;
-			}
-		}
-		return false;
-	},
 
 	/**
 	 * 其他玩家出牌时检测手牌（主要是碰、杠、胡）
@@ -359,16 +393,26 @@ const GameService = {
 		const otherIds = _.filter(tableIds, t=> t !== nextPlayerId);
 		ws.sendDifferenceUser(otherIds, "摸一张牌", {cardNum: null,roomInfo: newRoomInfo, gameInfo,playerId: nextPlayerId }, "deliverCard")
 		// 4. 自摸牌检测
+		this.checkHandCardAfterDraw(roomId, nextPlayerId, newCards, newCardNum, ws);
 		
-		
-		gameInfo = RoomService.getGameInfo(roomId)
-		roomInfo = RoomService.getRoomInfo(roomId)
+	},
+	/**
+	 * 摸牌后检测：自摸、花牌、暗杠、补杠
+	 * @param {string} roomId
+	 * @param {string} playerId - 摸牌人
+	 * @param {number[]} newCards - 摸牌后的手牌数组
+	 * @param {number} newCardNum - 摸到的牌
+	 * @param {object} ws - SocketService实例
+	 */
+	checkHandCardAfterDraw: function (roomId, playerId, newCards, newCardNum, ws) {
+		let gameInfo = RoomService.getGameInfo(roomId)
+		let roomInfo = RoomService.getRoomInfo(roomId)
 		const isWinning = this.checkIsWinning(newCards);
 		if(isWinning){
-			ws.sendToUser(nextPlayerId, "自摸，可以胡牌", {operateType: 4, playerId: nextPlayerId, gameInfo, roomInfo}, "operate");
+			ws.sendToUser(playerId, "自摸，可以胡牌", {operateType: 4, playerId: playerId, gameInfo, roomInfo}, "operate");
 			return;
-		} 
-		//花 
+		}
+		//花
 		
 		const flowerCards = _.filter(newCards, c => c >= 211 && c <= 218);
 		const firstFlower = flowerCards[0];
@@ -376,12 +420,12 @@ const GameService = {
 		
 		if(flowerCardNum){
 			
-			ws.sendToUser(nextPlayerId, "摸到花牌", { 
+			ws.sendToUser(playerId, "摸到花牌", {
 				operateType: 7,  // 花牌杠单独一个type，客户端静默处理
 				cardNum: flowerCardNum,
-				playerId: nextPlayerId, 
-				gameInfo, 
-				roomInfo 
+				playerId: playerId,
+				gameInfo,
+				roomInfo
 			}, "operate");
 			return;
 			
@@ -390,25 +434,25 @@ const GameService = {
 		const newCardVal = newCardNum % 50;
 		const sameCard = _.size(_.filter(newCards, h => !(h >= 211 && h <= 218) && h % 50 === newCardVal));
 		if(sameCard === 4){
-			ws.sendToUser(nextPlayerId, "暗杠(摸到第4张)", { 
+			ws.sendToUser(playerId, "暗杠(摸到第4张)", {
 				operateType: 6,  // 花牌杠单独一个type，客户端静默处理
 				cardNum: newCardNum,
-				playerId: nextPlayerId, 
-				gameInfo, 
-				roomInfo 
+				playerId: playerId,
+				gameInfo,
+				roomInfo
 			}, "operate");
 			return;
 		}
 
 		// 6b. 暗杠检测 → 手里原本就有4张（和摸到的牌无关）
-		const handCards = _.get(roomInfo, `${nextPlayerId}.handCards`, []);
+		const handCards = _.get(roomInfo, `${playerId}.handCards`, []);
 		const cardValCounts = _.countBy(_.filter(handCards, h => !(h >= 211 && h <= 218)), h => h % 50);
 		for(const [val, count] of Object.entries(cardValCounts)){
 			if(count === 4 && Number(val) !== newCardVal){
-				ws.sendToUser(nextPlayerId, "暗杠(手里4张)", {
+				ws.sendToUser(playerId, "暗杠(手里4张)", {
 					operateType: 6,
 					cardNum: Number(val),  // ← 发val，不是newCardNum
-					playerId: nextPlayerId,
+					playerId: playerId,
 					gameInfo,
 					roomInfo
 				}, "operate");
@@ -418,15 +462,15 @@ const GameService = {
 		
 
 		// 7. 补杠检测 → 碰牌区有3张同权值
-		const pengCards = _.get(roomInfo, `${nextPlayerId}.pengCards`, []);
+		const pengCards = _.get(roomInfo, `${playerId}.pengCards`, []);
 		const matchInPeng = _.filter(pengCards, p => !(p >= 211 && p <= 218) && p % 50 === newCardVal);
 		if(matchInPeng.length === 3){
-			ws.sendToUser(nextPlayerId, "补杠", { 
+			ws.sendToUser(playerId, "补杠", {
 				operateType: 5,  // 花牌杠单独一个type，客户端静默处理
 				cardNum: newCardNum,
-				playerId: nextPlayerId, 
-				gameInfo, 
-				roomInfo 
+				playerId: playerId,
+				gameInfo,
+				roomInfo
 			}, "operate");
 			return;
 		}
@@ -643,6 +687,16 @@ const GameService = {
 		})
 		const newRoomInfo = RoomService.resetRoomForNextGame(roomId);
 		return result;
+	},
+	/**
+	 * 过（不执行碰/杠/胡操作）
+	 * 跳过碰/杠/胡检测，直接让出牌人的下家摸牌
+	 * @param roomId
+	 * @param playerId
+	 */
+	pass: function (roomId, playerId) {
+		const playCardPlayerId = RoomService.getGameInfoDeep(roomId, "playCardPlayerId");
+		this.handleOtherPlayerCard(roomId, playCardPlayerId, null, true);
 	}
 }
 

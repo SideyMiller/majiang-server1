@@ -15,6 +15,7 @@ const cacheClient = require("@/utils/CacheClient");
 const HallServer = require("@core/app/HallServer");
 const appConfig = require("@/config/AppletsConfig")
 const prints = require("@utils/console");
+const { startServer: startMahjongAIServer } = require("@coreServices/mahjong-ai-server");
 
 const App = {
 	connectServers: [],           //连接服务器的数组
@@ -28,6 +29,7 @@ const App = {
 			await this.initSocket();
 			await this.initServer();
 			await this.startDoorServer();      // 门服务
+			await this.startMahjongAIServer(); // 麻将AI服务
 			await this.initDB();
 		} catch (e) {
 			this.onErrorServer(e);
@@ -65,6 +67,17 @@ const App = {
 	startDoorServer() {
 		const doorServer = DoorServer.getInstance();
 		doorServer.init();
+	},
+	/**
+	 * 启动麻将AI服务
+	 */
+	async startMahjongAIServer() {
+		try {
+			await startMahjongAIServer();
+			prints.printBanner("麻将AI服务启动，监听3721");
+		} catch (e) {
+			prints.printErrorBanner(`麻将AI服务启动异常: ${e.message}`);
+		}
 	},
 	/**
 	 * 启动大厅服务

@@ -25,7 +25,9 @@ const SocketApi = {
 	// 胡牌
 	win: 'win',
 	// 流局
-	flow: 'flow'
+	flow: 'flow',
+	// 过（不执行碰/杠/胡操作）
+	pass: 'pass'
 };
 
 module.exports = SocketApi;

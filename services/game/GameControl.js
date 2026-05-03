@@ -30,6 +30,13 @@ const GameControl = {
 		const gameInfo = RoomService.getGameInfo(message?.roomId)
 		const jsonData = {roomInfo, gameInfo}
 		ws.broadcastToRoom(_.keys(roomInfo), `房间${message?.roomId}游戏开始`, jsonData, 'startGame')
+
+		// 天胡检测：庄家发完14张牌后检测花牌、胡牌、暗杠、补杠
+		const keys = _.keys(roomInfo);
+		const bankerId = keys[0];
+		const bankerHandCards = _.get(roomInfo, `${bankerId}.handCards`, []);
+		const bankerNewCard = bankerHandCards[bankerHandCards.length - 1];
+		GameService.checkHandCardAfterDraw(message?.roomId, bankerId, bankerHandCards, bankerNewCard, ws);
 	},
 
 	
@@ -62,7 +69,7 @@ const GameControl = {
 		const jsonData = {roomInfo, gameInfo, cardNum: data?.cardNum, playerId: data?.userId, playCardTime: moment().valueOf()}
 		ws.broadcastToRoom(keys, `房间${data?.roomId}玩家出牌`, jsonData, 'playCard')
 		// 3. 检测其他玩家是否需要打出的牌
-		GameService.handleOtherPlayerCard(data.roomId, data.userId, data.cardNum)
+		GameService.handleOtherPlayerCard(data.roomId, data.userId, data.cardNum,false)
 	},
 	/**
 	 * 碰
@@ -85,8 +92,12 @@ const GameControl = {
 	 */
 	gang: function (message, ws) {
 		const data = message?.data;
-		const roomInfo = GameService.gang(data?.roomId, data.userId, data?.cardNum,data?.type)
-
+		const result = GameService.gang(data?.roomId, data.userId, data?.cardNum,data?.type)
+		if (result?.error) {
+			ws.sendToUser(data.userId, result.error, {code: result.code}, 'error');
+			return;
+		}
+		const roomInfo = result?.roomInfo; 
 		const gameInfo = RoomService.getGameInfo(data?.roomId)
 		const jsonData = { roomInfo, gameInfo, gangArr: data?.gangArr,playerId: data?.userId,gangType: data?.gangType,playCardTime: moment().valueOf() }
 		ws.broadcastToRoom(_.keys(roomInfo), `房间${data?.roomId}玩家${data.userId}开杠`, jsonData, 'gang')
@@ -103,6 +114,15 @@ const GameControl = {
 		const newRoomInfo = RoomService.resetRoomForNextGame(data?.roomId);
 		const jsonData = { result, playerId: data?.userId,playCardTime: moment().valueOf() }
 		ws.broadcastToRoom(_.keys(result), `房间${data?.roomId}玩家${data.userId}胡牌`, jsonData, 'winning')
+	},
+	/**
+	 * 过（不执行碰/杠/胡操作）
+	 * @param message
+	 * @param ws
+	 */
+	pass: function (message, ws) {
+		const data = message?.data;
+		GameService.pass(data?.roomId, data?.userId);
 	}
 }
 

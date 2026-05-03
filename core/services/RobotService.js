@@ -1,10 +1,13 @@
 
+const AI = require("@/core/services/mahjong-ai");
+
 class FakeWebSocket {
     constructor(userId) {
         this.userId = userId;
         this.isAlive = true;
         this.readyState = 1;
         this.roomId = null;
+        
     }
 
     // 拦截服务端发来的所有消息
@@ -21,113 +24,202 @@ class FakeWebSocket {
     ping() { this.isAlive = true; }
     terminate() {}
 
+    /**
+     * 从 roomInfo 中收集其他三家的出牌历史（face值数组）
+     * @param {object} roomInfo - 房间信息
+     * @returns {number[][]} - 三家出牌历史（face值）
+     */
+    collectOpponentDiscards(roomInfo) {
+        const _ = require("lodash");
+        const discards = [];
+        for (const pid in roomInfo) {
+            if (pid === this.userId) continue;
+            const played = _.get(roomInfo, `${pid}.playedCards`, []);
+            // 转为 face 值（%50），过滤花牌
+            discards.push(played.filter(c => !(c >= 211 && c <= 218)).map(c => c % 50));
+        }
+        return discards;
+    }
+
+    /**
+     * 从 roomInfo 中获取自己的手牌（face值数组，已过滤花牌）
+     * @param {object} roomInfo - 房间信息
+     * @returns {number[]}
+     */
+    getMyHandFaces(roomInfo) {
+        const _ = require("lodash");
+        const handCards = _.get(roomInfo, `${this.userId}.handCards`, []);
+        
+                    
+        return handCards.filter(c => !(c >= 211 && c <= 218)).map(c => c % 50);
+    }
+
+    /**
+     * 根据 AI 建议的 face 值，从手牌中找到对应的原始牌号
+     * @param {object} roomInfo - 房间信息
+     * @param {number} face - AI建议出的牌的face值
+     * @returns {number} - 原始牌号
+     */
+    findOriginalCard(roomInfo, face) {
+        const _ = require("lodash");
+        const handCards = _.get(roomInfo, `${this.userId}.handCards`, []);
+        // 优先找非花牌中匹配face值的牌
+        const found = handCards.find(c => !(c >= 211 && c <= 218) && c % 50 === face);
+        return found || handCards[handCards.length - 1]; // 兜底：打最后一张
+    }
+    
     // AI 大脑：收到消息后决定做什么
     think(messageObj) {
         const { type, data } = messageObj;
+        
         if (data && data.roomInfo && data.roomInfo[this.userId] && data.roomInfo[this.userId].roomId) {
             this.roomId = data.roomInfo[this.userId].roomId;
         }
-        // 如果轮到自己摸牌了
+
         if (type === 'deliverCard' && data.playerId === this.userId) {
-            // console.log(`机器人 [${this.userId}] 摸到牌 ${data.cardNum}，正在思考出牌...`);
             setTimeout(() => {
-                this.mockClientAction('playCard', {
-                    roomId: data.roomInfo[this.userId].roomId,
-                    userId: this.userId,
-                    cardNum: data.cardNum // 傻瓜AI：摸什么打什么。你可以后续优化这里的取牌逻辑
-                });
-            }, 1000 + Math.random() * 1000); // 随机等 1~2 秒
-        }
-        // 如果服务器提示可以操作（胡、杠、碰）
-        else if (type === 'operate' && data.playerId === this.userId) {
-            // console.log(`机器人 [${this.userId}] 收到操作提示: 操作码 ${data.operateType}`);
-            setTimeout(() => {
-                if (data.operateType === 2) { // 遇到能碰就一定碰
+                try {
+                    const RoomService = require("@/core/services/RoomService");
+                    const roomInfo = RoomService.getRoomInfo(data.roomInfo[this.userId].roomId); // ← 取最新
+                    const handFaces = this.getMyHandFaces(roomInfo);
+                    const discards = this.collectOpponentDiscards(roomInfo);
+                    const decision = AI.decide(handFaces, discards);
+                    const cardNum = this.findOriginalCard(roomInfo, decision.discard);
+                    console.log(`机器人 [${this.userId}] AI决策: ${decision.reason}`);
+                    this.mockClientAction('playCard', {
+                        roomId: data.roomInfo[this.userId].roomId,
+                        userId: this.userId,
+                        cardNum
+                    });
+                } catch (e) {
+                    console.error(`机器人 [${this.userId}] AI出牌决策异常，兜底出牌`, e);
+                    const RoomService = require("@/core/services/RoomService");
+                    const roomInfo = RoomService.getRoomInfo(data.roomInfo[this.userId].roomId);
+                    const handCards = _.get(roomInfo, `${this.userId}.handCards`, []);
                     
+                    this.mockClientAction('playCard', {
+                        roomId: data.roomInfo[this.userId].roomId,
+                        userId: this.userId,
+                        cardNum: handCards[handCards.length - 1]
+                    });
+                }
+            }, 1000 + Math.random() * 1500);
+        }
+
+        else if (type === 'operate' && data.playerId === this.userId) {
+            clearTimeout(this._pendingPlay);
+            this._pendingPlay = null;
+
+            
+                if (data.operateType === 2) {
+                    try {
+                        const roomInfo = data.roomInfo;
+                        const handFaces = this.getMyHandFaces(roomInfo);
+                        const tileFace = data.cardNum % 50;
+                        const shouldPong = AI.shouldPong(handFaces, tileFace);
+                        if (!shouldPong) {
+                            this.mockClientAction('pass', {
+                                roomId: data.roomInfo[this.userId].roomId,
+                                userId: this.userId,
+                            });
+                            return;
+                        }
+                    } catch (e) {
+                        console.error(`机器人 [${this.userId}] AI碰牌决策异常，默认碰`, e);
+                    }
                     this.mockClientAction('peng', {
                         roomId: data.roomInfo[this.userId].roomId,
                         userId: this.userId,
                         cardNum: data.cardNum
                     });
                     setTimeout(() => {
-                        const _ = require("lodash")
-                        const HandCards = _.get(data.roomInfo, `${this.userId}.handCards`);
-
-                        this.mockClientAction('playCard', {
-                            roomId: data.roomInfo[this.userId].roomId,
-                            userId: this.userId,
-                            cardNum: HandCards[HandCards.length - 1] // 傻瓜AI：摸什么打什么。你可以后续优化这里的取牌逻辑
-                        });
+                        try {
+                            const RoomService = require("@/core/services/RoomService");
+                            const roomInfo = RoomService.getRoomInfo(data.roomInfo[this.userId].roomId);
+                            const handFaces = this.getMyHandFaces(roomInfo);
+                            const discards = this.collectOpponentDiscards(roomInfo);
+                            const decision = AI.decide(handFaces, discards);
+                            const cardNum = this.findOriginalCard(roomInfo, decision.discard);
+                            this.mockClientAction('playCard', {
+                                roomId: data.roomInfo[this.userId].roomId,
+                                userId: this.userId,
+                                cardNum
+                            });
+                        } catch (e) {
+                            const RoomService = require("@/core/services/RoomService");
+                            const roomInfo = RoomService.getRoomInfo(data.roomInfo[this.userId].roomId);
+                            const handCards = _.get(roomInfo, `${this.userId}.handCards`, []);
+                            this.mockClientAction('playCard', {
+                                roomId: data.roomInfo[this.userId].roomId,
+                                userId: this.userId,
+                                cardNum: handCards[handCards.length - 1]
+                            });
+                        }
                     }, 800);
+                    return; // ← 加return
                 }
-                if (data.operateType === 3) { // 遇到能杠就一定杠
-                    
+                if (data.operateType === 3) {
                     this.mockClientAction('gang', {
                         roomId: data.roomInfo[this.userId].roomId,
                         userId: this.userId,
-                        type:'minggang',
+                        type: 'minggang',
                         cardNum: data.cardNum
                     });
+                    return; // ← 加return
                 }
-                if (data.operateType === 4) { // 遇到能胡就一定胡
+                if (data.operateType === 4) {
                     this.mockClientAction('win', {
                         roomId: data.roomInfo[this.userId].roomId,
                         userId: this.userId,
-                        cardNum: data.gameInfo.activeCardNum 
+                        cardNum: data.gameInfo.activeCardNum
                     });
+                    return;
                 }
-                if (data.operateType === 5) { // 遇到能杠就一定杠
-                    
+                if (data.operateType === 5) {
                     this.mockClientAction('gang', {
                         roomId: data.roomInfo[this.userId].roomId,
                         userId: this.userId,
-                        type:'bugang',
+                        type: 'bugang',
                         cardNum: data.cardNum
                     });
+                    return;
                 }
-                if (data.operateType === 6) { // 遇到能杠就一定杠
-                    
+                if (data.operateType === 6) {
                     this.mockClientAction('gang', {
                         roomId: data.roomInfo[this.userId].roomId,
                         userId: this.userId,
-                        type:'angang',
+                        type: 'angang',
                         cardNum: data.cardNum
                     });
+                    return;
                 }
-                if (data.operateType === 7) { // huagang ← 新增
+                if (data.operateType === 7) {
                     this.mockClientAction('gang', {
                         roomId: data.roomInfo[this.userId].roomId,
                         userId: this.userId,
-                        type:'huagang',
+                        type: 'huagang',
                         cardNum: data.cardNum
                     });
-                }                     
-            }, 1000);
+                    return;
+                }
+            
         }
+
         else if (type === 'winning' || type === 'flow') {
-            // console.log(`机器人 [${this.userId}] 检测到游戏结束，准备进入下一局...`);
-            // 获取房间ID，因为此时 data.roomInfo 是最新的，可以直接用
-            setTimeout(() => {   
+            setTimeout(() => {
                 const roomId = this.roomId;
                 const RoomService = require("@/core/services/RoomService");
-                const RobotService = require("@/core/services/RobotService"); // 引入自身以调用静态方法
+                const RobotService = require("@/core/services/RobotService");
                 const SocketService = require("@/core/socket/SocketService");
-                const newRoomInfo = RoomService.setout(roomId, this.userId, 1); 
-                if (newRoomInfo) { 
-                    // 3. 获取socket实例并向房间里的【所有人】广播最新状态
+                const newRoomInfo = RoomService.setout(roomId, this.userId, 1);
+                if (newRoomInfo) {
                     const ws = SocketService.getInstance();
-                    for(let k in newRoomInfo){
-                        ws.sendToUser(newRoomInfo[k].id, `状态更新`, {roomInfo: newRoomInfo}, 'updateRoom');
+                    for (let k in newRoomInfo) {
+                        ws.sendToUser(newRoomInfo[k].id, `状态更新`, { roomInfo: newRoomInfo }, 'updateRoom');
                     }
-                    // console.log(`机器人 [${this.userId}] 已广播自己的准备状态。`);
-
-                    // 4. 调用检查开局的逻辑
-                    // 注意：这里不能用 this.checkAndStartGame，因为 this 是 FakeWebSocket 实例
                     RobotService.checkAndStartGame(roomId);
                 }
-                
-                // console.log(`机器人 [${this.userId}] 已自动准备！`);
-            }, 2000);    
+            }, 2000);
         }
     }
 
