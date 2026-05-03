@@ -7,6 +7,7 @@ const _ = require("lodash")
 const GameService = require("@/services/game/GameService");
 const RoomService = require("@coreServices/RoomService");
 const PlayerService = require("@coreServices/PlayerService");
+const TimeoutService = require("@coreServices/TimeoutService");
 const moment = require("moment")
 const stringify = require("fast-json-stable-stringify");
 
@@ -48,6 +49,8 @@ const GameControl = {
 	reconnect: function (message, ws) {
 		const data = message?.data;
 		const playerId = data?.userId;
+		// ★ 超时托管：重连时取消托管模式，恢复正常
+		TimeoutService.cancelAutoPlay(playerId);
 		const roomId = PlayerService.getRoomId(playerId);
 		const playerInfo = PlayerService.getPlayerInfo(playerId);
 		const gameInfo = RoomService.getGameInfo(roomId)

@@ -300,6 +300,10 @@ const RoomService = {
 	 * @param roomId
 	 */
 	disbandRoom: function (roomId) {
+		// ★ 超时托管：解散房间前清理所有超时定时器
+		const TimeoutService = require("@coreServices/TimeoutService");
+		TimeoutService.cancelAllByRoom(roomId);
+
 		const roomInfo = this.getRoomInfo(roomId);
 		if (roomInfo) {
 			_.keys(roomInfo).forEach(id => {

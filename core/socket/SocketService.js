@@ -9,8 +9,12 @@ const Utils = require("@/utils");
 const stringify = require('fast-json-stable-stringify');
 const GameControl = require("@services/game/GameControl");
 const HackService = require("@coreServices/HackService");
+const TimeoutService = require("@coreServices/TimeoutService");
 const appConfig = require("@/config/AppletsConfig")
 const prints = require("@utils/console");
+
+// 需要取消超时定时器的客户端操作类型
+const CANCEL_TIMEOUT_TYPES = ['playCard', 'peng', 'gang', 'win', 'pass'];
 
 class SocketService{
 	constructor(){
@@ -94,6 +98,10 @@ class SocketService{
 			this.sendHeartBeat(userId);
 		} else if(Utils.isJSON(message)) {  // API
 			const parseMessage = JSON.parse(_.cloneDeep(message));
+			// ★ 超时托管：收到客户端操作消息，取消该玩家的超时定时器
+			if (CANCEL_TIMEOUT_TYPES.includes(parseMessage?.type)) {
+				TimeoutService.cancelTimeout(userId);
+			}
 			if(_.isFunction(GameControl[parseMessage?.type])){
 				GameControl[parseMessage?.type](parseMessage, this)
 			}
@@ -158,6 +166,29 @@ class SocketService{
 				ws.send(stringify({message, data: userData, type}));
 			}
 		})
+
+		// ★ 超时托管：发送消息后，根据类型启动超时倒计时
+		if (type === 'deliverCard' && data.playerId === userId) {
+			// 轮到该玩家摸牌/出牌，启动15秒倒计时
+			const roomId = _.get(data, `roomInfo.${userId}.roomId`);
+			if (roomId) {
+				TimeoutService.startTimeout(roomId, userId, 'playCard', {
+					roomInfo: data.roomInfo,
+					gameInfo: data.gameInfo
+				});
+			}
+		} else if (type === 'operate' && data.playerId === userId) {
+			// 碰/杠/胡提示，启动8秒倒计时
+			const roomId = _.get(data, `roomInfo.${userId}.roomId`);
+			if (roomId) {
+				TimeoutService.startTimeout(roomId, userId, 'operate', {
+					operateType: data.operateType,
+					cardNum: data.cardNum,
+					roomInfo: data.roomInfo,
+					gameInfo: data.gameInfo
+				});
+			}
+		}
 	}
 	
 	/**
